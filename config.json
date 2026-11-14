@@ -1,6 +1,6 @@
 {
-  "apiKey": "0bd6f2243f134ab987218d6314c8dc8f.S2o4PJ3iuxH6H8O3",
-  "baseUrl": "https://open.bigmodel.cn/api/paas/v4/",
+  "apiKey": "0“,
+  "baseUrl": "https://open.bigmodel.cn/api/paas/v4/hello",
   "model": "GLM-4-Flash",
   "host": "127.0.0.1",
   "port": 1234,
