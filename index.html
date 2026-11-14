@@ -391,8 +391,15 @@ body[data-era="1998"] .footbar [data-action],body[data-era="1993"] .footbar [dat
 
 <!-- ==================== OPTIONAL CLOUDFLARE GATEWAY (not executed here) ==================== -->
 <script type="text/plain" id="gateway-code">
-// Cloudflare Workers gateway - paste into a Worker and deploy.
-// Set the worker secret/environment variable SEARCH_API_KEY, or replace PASTE_KEY_HERE.
+// === Recommended (zero config): Cloudflare Pages Function ===
+// Put this file at  functions/api/chat.js  next to index.html and deploy the folder to
+// Cloudflare Pages. The page already POSTs to same-origin /api/chat, so nothing else is needed.
+// In the Pages dashboard set a Production environment variable: SEARCH_API_KEY = your GLM key.
+//
+// === Alternative: standalone Cloudflare Worker ===
+// Paste the code below into a Worker and deploy. Then open Settings in the page and set the
+// endpoint to https://<your-worker>.workers.dev/api/chat
+// Set the worker environment variable SEARCH_API_KEY, or replace PASTE_KEY_HERE.
 const UPSTREAM = 'https://open.bigmodel.cn/api/paas/v4/chat/completions';
 const MODEL = 'GLM-4-Flash';
 const CORS = {
@@ -523,6 +530,7 @@ async function callAPI(body, signal) {
     let detail = 'HTTP ' + res.status;
     try { const j = await res.json(); if (j.error && j.error.message) detail = j.error.message; } catch (e) { /* noop */ }
     if (res.status === 404) detail = 'The search endpoint was not found. Open Settings and set the endpoint.';
+    if (res.status === 405) detail = 'HTTP 405: the endpoint rejected POST. On Cloudflare Pages this means no gateway is deployed at ' + apiUrl() + '. Deploy the included functions/api/chat.js (Pages Function) or point Settings > endpoint at a Workers gateway.';
     throw new Error(detail);
   }
   return res;
