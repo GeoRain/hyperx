@@ -27,13 +27,13 @@ function loadConfig() {
   try {
     return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
   } catch (err) {
-    console.error('[config] Cannot read config.json: ' + err.message);
-    process.exit(1);
+    console.warn('[config] config.json not found - falling back to environment variables and the in-app personal key.');
+    return {};
   }
 }
 
 const CFG = loadConfig();
-const API_KEY = String(process.env.GLM_API_KEY || CFG.apiKey || '').trim();
+const API_KEY = String(process.env.SEARCH_API_KEY || process.env.GLM_API_KEY || CFG.apiKey || '').trim();
 const MODEL = String(CFG.model || 'GLM-4-Flash');
 const HOST = String(CFG.host || '127.0.0.1');
 const PORT = Number(process.env.PORT || CFG.port || 8080);
@@ -49,9 +49,15 @@ try {
 }
 
 if (!API_KEY) {
-  console.error('[config] apiKey is empty. Set it in config.json or GLM_API_KEY env var.');
-  process.exit(1);
+  console.warn('[config] No server-side API key. Searches will use the personal key stored in Settings,');
+  console.warn('[config] or set SEARCH_API_KEY / GLM_API_KEY before starting.');
 }
+
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, x-glm-key'
+};
 
 function sendJSON(res, status, obj) {
   const buf = Buffer.from(JSON.stringify(obj), 'utf8');
@@ -59,7 +65,8 @@ function sendJSON(res, status, obj) {
     'Content-Type': 'application/json; charset=utf-8',
     'Content-Length': buf.length,
     'Cache-Control': 'no-store',
-    'X-Content-Type-Options': 'nosniff'
+    'X-Content-Type-Options': 'nosniff',
+    ...CORS_HEADERS
   });
   res.end(buf);
 }
@@ -69,7 +76,8 @@ function sendText(res, status, text) {
   res.writeHead(status, {
     'Content-Type': 'text/plain; charset=utf-8',
     'Content-Length': buf.length,
-    'X-Content-Type-Options': 'nosniff'
+    'X-Content-Type-Options': 'nosniff',
+    ...CORS_HEADERS
   });
   res.end(buf);
 }
@@ -103,6 +111,18 @@ function buildPayload(data) {
 }
 
 function handleChat(req, res) {
+  // Key resolution order: personal key sent by the browser (x-glm-key) > server-side key.
+  const personal = String(req.headers['x-glm-key'] || '').trim();
+  const apiKey = personal || API_KEY;
+  if (!apiKey) {
+    return sendJSON(res, 500, {
+      error: {
+        message: 'No API key available. Set SEARCH_API_KEY / GLM_API_KEY, add config.json, or store a personal key in Settings.',
+        code: 'no_api_key'
+      }
+    });
+  }
+
   let raw = '';
   let aborted = false;
 
@@ -156,7 +176,7 @@ function handleChat(req, res) {
       path: UPSTREAM.pathname + UPSTREAM.search,
       method: 'POST',
       headers: {
-        'Authorization': 'Bearer ' + API_KEY,
+        'Authorization': 'Bearer ' + apiKey,
         'Content-Type': 'application/json',
         'Content-Length': bodyBuf.length,
         'Accept': payload.stream ? 'text/event-stream' : 'application/json'
@@ -185,7 +205,8 @@ function handleChat(req, res) {
           'Cache-Control': 'no-cache, no-transform',
           'Connection': 'keep-alive',
           'X-Accel-Buffering': 'no',
-          'X-Content-Type-Options': 'nosniff'
+          'X-Content-Type-Options': 'nosniff',
+          ...CORS_HEADERS
         });
         upRes.pipe(res);
         upRes.on('end', () => { try { res.end(); } catch { /* noop */ } });
@@ -198,7 +219,8 @@ function handleChat(req, res) {
           res.writeHead(200, {
             'Content-Type': 'application/json; charset=utf-8',
             'Cache-Control': 'no-store',
-            'X-Content-Type-Options': 'nosniff'
+            'X-Content-Type-Options': 'nosniff',
+            ...CORS_HEADERS
           });
           res.end(buf);
         });
@@ -227,6 +249,11 @@ const server = http.createServer((req, res) => {
   const pathname = url.pathname;
 
   if (req.method === 'POST' && pathname === '/api/chat') return handleChat(req, res);
+
+  if (req.method === 'OPTIONS' && pathname === '/api/chat') {
+    res.writeHead(204, Object.assign({}, CORS_HEADERS, { 'Access-Control-Max-Age': '86400' }));
+    return res.end();
+  }
 
   if (req.method === 'GET' || req.method === 'HEAD') {
     if (pathname === '/' || pathname === '/index.html') {
@@ -266,12 +293,14 @@ server.on('error', (err) => {
 server.listen(PORT, HOST, () => {
   const url = 'http://' + HOST + ':' + PORT + '/';
   console.log('');
-  console.log('  Google AI Search (1993 / 1998 edition)');
+  console.log('  HyperX AI Search (1993 / 1998 / 2025)');
   console.log('  ------------------------------------------');
   console.log('  Local URL : ' + url);
   console.log('  Model     : ' + MODEL);
   console.log('  Upstream  : ' + UPSTREAM.host);
-  console.log('  Key       : loaded from ' + (process.env.GLM_API_KEY ? 'GLM_API_KEY env' : 'config.json'));
+  console.log('  Key       : ' + (API_KEY
+    ? (process.env.SEARCH_API_KEY ? 'SEARCH_API_KEY env' : (process.env.GLM_API_KEY ? 'GLM_API_KEY env' : 'config.json'))
+    : 'none (personal key from Settings only)'));
   console.log('  Stop      : Ctrl+C');
   console.log('');
   if (CFG.openBrowser !== false && !process.env.NO_OPEN) {

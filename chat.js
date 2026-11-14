@@ -1,12 +1,17 @@
-// Cloudflare Pages Function: serves same-origin POST /api/chat
+// Cloudflare Pages Function: same-origin POST /api/chat
 // Deploy together with index.html (drag the whole folder into Pages, or `wrangler pages deploy`).
-// Set a Production environment variable named SEARCH_API_KEY = your GLM key in the Pages dashboard.
+//
+// KEY HANDLING - two supported modes, the key is NEVER stored in this repository:
+//   1. Server key  : set a Production environment variable SEARCH_API_KEY = your GLM key.
+//   2. Personal key: the browser sends its own key in the `x-glm-key` header. That key is stored
+//                    on the user's device encrypted (AES-GCM + PBKDF2) and takes precedence.
+// The server key is used whenever the request does not carry a personal one.
 const UPSTREAM = 'https://open.bigmodel.cn/api/paas/v4/chat/completions';
 const MODEL = 'GLM-4-Flash';
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type'
+  'Access-Control-Allow-Headers': 'Content-Type, x-glm-key'
 };
 
 export async function onRequestOptions() {
@@ -14,10 +19,13 @@ export async function onRequestOptions() {
 }
 
 export async function onRequestPost({ request, env }) {
-  const key = env.SEARCH_API_KEY || env.SEARCH_KEY || 'PASTE_KEY_HERE';
-  if (!key || key === 'PASTE_KEY_HERE') {
+  const personal = (request.headers.get('x-glm-key') || '').trim();
+  const serverKey = (env.SEARCH_API_KEY || env.SEARCH_KEY || '').trim();
+  const key = personal || serverKey;
+
+  if (!key) {
     return new Response(
-      JSON.stringify({ error: { message: 'Missing SEARCH_API_KEY environment variable on the Pages project.' } }),
+      JSON.stringify({ error: { message: 'No API key. Set the SEARCH_API_KEY environment variable on the Pages project, or store a personal key in Settings.' } }),
       { status: 500, headers: Object.assign({}, CORS, { 'Content-Type': 'application/json' }) }
     );
   }
